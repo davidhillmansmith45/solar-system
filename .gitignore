@@ -7,18 +7,52 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
+# Dependencies
+node_modules/
+
+# Build / Capacitor
+dist/
 dist-ssr
 *.local
+.capacitor/
 
-# Editor directories and files
+# Android local / generated
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/captures/
+android/.cxx/
+android/app/.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Keystores / secrets — never commit
+*.jks
+*.keystore
+*.p12
+keystore.properties
+google-services.json
+
+# Editor / OS
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
+*.iml
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+Thumbs.db
+*~
+
+# Env
+.env
+.env.*
