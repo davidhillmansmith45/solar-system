@@ -25,8 +25,8 @@ export function SolarSystem() {
   return (
     <>
       <color attach="background" args={['#050508']} />
-      <ambientLight intensity={0.22} />
-      <pointLight position={[0, 0, 0]} intensity={2.8} distance={0} decay={0.35} color="#fff2cc" />
+      <ambientLight intensity={0.2} />
+      <pointLight position={[0, 0, 0]} intensity={4.6} distance={0} decay={0.35} color="#fff4e0" />
       <Stars radius={400} depth={80} count={4500} factor={3.2} saturation={0} fade speed={0.4} />
 
       {heliocentric.map((b) => (

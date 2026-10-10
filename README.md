@@ -113,3 +113,10 @@ package.json
 ## License
 
 Private / educational observatory model.
+
+## Texture credits
+
+Planet, Sun, Moon and ring textures in `public/textures/` are from
+[Solar System Scope](https://www.solarsystemscope.com/textures/) (based on NASA imagery),
+licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Some were downscaled to 1024×512 for mobile performance.

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Html } from '@react-three/drei'
 import * as THREE from 'three'
@@ -7,6 +7,16 @@ import type { BodyDef } from '../../data/bodies'
 import { orbitRadius } from '../../data/bodies'
 import { orbitalPosition, rotationAngle } from '../../lib/orbit'
 import { OrbitRing } from './OrbitRing'
+import {
+  VISUALS,
+  loadTexture,
+  makeAtmosphereMaterial,
+  nightSideEmissive,
+  getGlowTexture,
+  makeRingGeometry,
+} from './planetVisuals'
+
+const noRaycast = () => null
 
 interface Props {
   body: BodyDef
@@ -46,24 +56,131 @@ export function CelestialBody({
   const a = body.parent ? orbitRadius(body, compact) : 0
   const scale = bodyScale(body, compact)
 
+  const visual = VISUALS[body.id]
+
   const material = useMemo(() => {
     if (body.kind === 'star') {
-      return new THREE.MeshStandardMaterial({
-        color: body.swatch,
-        emissive: body.swatch,
-        emissiveIntensity: 1.6,
-        roughness: 0.4,
-        metalness: 0.1,
-      })
+      // Placeholder until the photosphere texture arrives
+      return new THREE.MeshBasicMaterial({ color: body.swatch })
     }
     return new THREE.MeshStandardMaterial({
       color: body.swatch,
-      roughness: 0.72,
-      metalness: 0.15,
-      emissive: body.swatch,
-      emissiveIntensity: body.kind === 'comet' ? 0.25 : 0.05,
+      roughness: visual?.roughness ?? 0.9,
+      metalness: 0,
+      emissive: body.kind === 'comet' ? body.swatch : '#000000',
+      emissiveIntensity: body.kind === 'comet' ? 0.25 : 0,
     })
-  }, [body])
+  }, [body, visual])
+
+  // Swap in real surface textures once loaded (keeps the flat swatch color until then)
+  useEffect(() => {
+    let cancelled = false
+    if (body.kind === 'star') {
+      loadTexture('2k_sun.jpg').then((t) => {
+        if (cancelled) return
+        const m = material as THREE.MeshBasicMaterial
+        m.map = t
+        m.color.setRGB(1.35, 1.2, 1.0)
+        m.needsUpdate = true
+      })
+    } else if (visual?.map) {
+      loadTexture(visual.map).then((t) => {
+        if (cancelled) return
+        const m = material as THREE.MeshStandardMaterial
+        m.map = t
+        if (visual.tintWithSwatch) {
+          // Lift the swatch a little so the gray lunar detail doesn't darken it too much
+          m.color.set(body.swatch).multiplyScalar(1.35)
+        } else {
+          m.color.set('#ffffff')
+        }
+        m.needsUpdate = true
+      })
+      if (body.id === 'earth') {
+        loadTexture('1k_earth_nightmap.jpg').then((t) => {
+          if (cancelled) return
+          const m = material as THREE.MeshStandardMaterial
+          nightSideEmissive(m)
+          m.emissiveMap = t
+          m.emissive.set('#ffd9a0')
+          m.emissiveIntensity = 1.1
+          m.needsUpdate = true
+        })
+      }
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [body, visual, material])
+
+  const cloudMaterial = useMemo(() => {
+    if (body.id !== 'earth') return null
+    return new THREE.MeshStandardMaterial({
+      color: '#ffffff',
+      transparent: true,
+      opacity: 0,
+      roughness: 1,
+      metalness: 0,
+      depthWrite: false,
+    })
+  }, [body.id])
+
+  useEffect(() => {
+    if (!cloudMaterial) return
+    let cancelled = false
+    loadTexture('1k_earth_clouds.jpg', false).then((t) => {
+      if (cancelled) return
+      cloudMaterial.alphaMap = t
+      cloudMaterial.opacity = 0.9
+      cloudMaterial.needsUpdate = true
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [cloudMaterial])
+
+  const atmosphereMaterial = useMemo(() => {
+    const atm = visual?.atmosphere
+    return atm ? makeAtmosphereMaterial(atm.color, atm.intensity, atm.power) : null
+  }, [visual])
+
+  const ringMaterial = useMemo(() => {
+    if (body.id !== 'saturn') return null
+    // Unlit so the rings stay visible when the Sun is near their plane
+    return new THREE.MeshBasicMaterial({
+      color: '#d4c4a0',
+      transparent: true,
+      opacity: 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    })
+  }, [body.id])
+
+  const ringGeometry = useMemo(
+    () => (body.id === 'saturn' ? makeRingGeometry(1.5, 2.35, 128) : null),
+    [body.id],
+  )
+
+  useEffect(() => {
+    if (!ringMaterial) return
+    let cancelled = false
+    loadTexture('2k_saturn_ring_alpha.png').then((t) => {
+      if (cancelled) return
+      ringMaterial.map = t
+      ringMaterial.color.set('#e6dccb')
+      ringMaterial.opacity = 1
+      ringMaterial.needsUpdate = true
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [ringMaterial])
+
+  const tiltRotation: [number, number, number] = visual?.tiltX !== undefined
+    ? [visual.tiltX, 0, 0]
+    : [0, 0, THREE.MathUtils.degToRad(visual?.tiltDeg ?? 0)]
+
+  const cloud = useRef<THREE.Mesh>(null)
 
   useFrame(() => {
     if (!group.current) return
@@ -86,6 +203,10 @@ export function CelestialBody({
     if (mesh.current && body.rotationHours) {
       mesh.current.rotation.y = rotationAngle(simTimeMs, body.rotationHours)
     }
+    if (cloud.current && body.rotationHours) {
+      // Clouds drift slowly relative to the surface
+      cloud.current.rotation.y = rotationAngle(simTimeMs, body.rotationHours * 0.92)
+    }
   })
 
   return (
@@ -98,36 +219,51 @@ export function CelestialBody({
         null
       )}
 
-      <mesh
-        ref={mesh}
-        scale={scale}
-        onClick={(e) => {
-          e.stopPropagation()
-          onSelect(body.id)
-        }}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <sphereGeometry args={[1, body.kind === 'star' ? 48 : 32, body.kind === 'star' ? 48 : 32]} />
-        <primitive object={material} attach="material" />
-      </mesh>
+      <group rotation={tiltRotation}>
+        <mesh
+          ref={mesh}
+          scale={scale}
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect(body.id)
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <sphereGeometry args={[1, body.kind === 'star' ? 64 : 48, body.kind === 'star' ? 64 : 48]} />
+          <primitive object={material} attach="material" />
+        </mesh>
 
-      {body.kind === 'star' && (
-        <mesh scale={scale * 1.35}>
-          <sphereGeometry args={[1, 32, 32]} />
-          <meshBasicMaterial color={body.swatch} transparent opacity={0.18} depthWrite={false} />
+        {cloudMaterial && (
+          // Thin cloud layer hugging the surface (planet radius itself is unchanged)
+          <mesh ref={cloud} scale={scale * 1.012} raycast={noRaycast}>
+            <sphereGeometry args={[1, 48, 48]} />
+            <primitive object={cloudMaterial} attach="material" />
+          </mesh>
+        )}
+      </group>
+
+      {atmosphereMaterial && (
+        <mesh scale={scale * 1.04} raycast={noRaycast}>
+          <sphereGeometry args={[1, 48, 48]} />
+          <primitive object={atmosphereMaterial} attach="material" />
         </mesh>
       )}
 
-      {body.id === 'saturn' && (
-        <mesh rotation={[Math.PI / 2.6, 0, 0.2]} scale={scale}>
-          <ringGeometry args={[1.5, 2.35, 64]} />
-          <meshBasicMaterial
-            color="#d4c4a0"
+      {body.kind === 'star' && (
+        <sprite scale={scale * 3.6} raycast={noRaycast}>
+          <spriteMaterial
+            map={getGlowTexture()}
             transparent
-            opacity={0.55}
-            side={THREE.DoubleSide}
             depthWrite={false}
+            blending={THREE.AdditiveBlending}
+            toneMapped={false}
           />
+        </sprite>
+      )}
+
+      {ringMaterial && ringGeometry && (
+        <mesh rotation={[Math.PI / 2.6, 0, 0.2]} scale={scale} geometry={ringGeometry} raycast={noRaycast}>
+          <primitive object={ringMaterial} attach="material" />
         </mesh>
       )}
 
